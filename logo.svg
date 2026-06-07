@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+  <defs>
+    <linearGradient id="aGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00E5FF" />
+      <stop offset="100%" stop-color="#0055FF" />
+    </linearGradient>
+    <mask id="hMask">
+      <rect width="500" height="500" fill="white" />
+      <polygon points="109,500 313,0 600,0 600,500" fill="black"/>
+    </mask>
+  </defs>
+  
+  <rect width="500" height="500" fill="#020868" />
+  
+  <!-- White 'h' -->
+  <path d="M 60 100 L 60 420 M 60 260 L 190 260 L 190 420" 
+        stroke="#FFFFFF" stroke-width="70" stroke-linecap="round" stroke-linejoin="round" fill="none" mask="url(#hMask)" />
+        
+  <!-- Blue gradient 'A' -->
+  <path d="M 180 420 L 310 100 L 440 420" 
+        stroke="url(#aGrad)" stroke-width="70" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+        
+  <!-- 4-pointed Star -->
+  <path d="M 310 280 Q 310 310 280 310 Q 310 310 310 340 Q 310 310 340 310 Q 310 310 310 280 Z" fill="#00E5FF"/>
+</svg>
