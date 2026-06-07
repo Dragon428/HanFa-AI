@@ -4,7 +4,7 @@
     // ===== Vault =====
     const _v = [
         'WklZMXpYWlNLWFRXcnptdWZYTjVTQzBwWUYzYnlkR1dIQk80YWRlbmVSb2IzYjkyOEU2TV9rc2c=',
-        'd3cxYnNrN3Z2VTVORUV5Z3FSVVJaZGlLZHdOY0lrTFVVV083c1Q1VnF5U0k2TlI4YkEuUUE='
+        'dy1RTmJaLUpGdEdiTWhaVVVlSHBlemZIN0VZQ3Y1MDZRSnl2bEtyOWc2WEs2TlI4YkEuUUE='
     ];
     function _d(i) { return atob(_v[i]).split('').reverse().join(''); }
 
@@ -69,7 +69,7 @@
     });
 
     // ===== State =====
-    const state = { model: 'groq', section: 'chat', history: { groq: [], gemini: [] }, busy: false, busyImg: false };
+    const state = { model: 'groq', section: 'chat', history: { groq: [], gemini: [] }, busy: false, busyImg: false, attachedImg: null };
 
     const $ = s => document.querySelector(s);
     const $$ = s => document.querySelectorAll(s);
@@ -85,6 +85,9 @@
         mobileMenuBtn: $('#mobile-menu-btn'),
         modelsSection: $('.sb-models'),
         modelsLabel: document.querySelectorAll('.sb-section-label')[1],
+        chatFile: $('#chat-file'), btnAttach: $('#btn-attach'),
+        imgPreviewContainer: $('#img-preview-container'),
+        imgPreview: $('#img-preview'), btnRemoveImg: $('#btn-remove-img'),
     };
 
     // ===== Mobile Menu =====
@@ -115,6 +118,14 @@
         state.model = m;
         el.modelBtns.forEach(b => b.classList.toggle('active', b.dataset.model === m));
         el.modelLabel.textContent = m === 'groq' ? 'FacheAI' : 'Gemini 2.5 Pro/Flash';
+        
+        if (m === 'groq') {
+            if (state.attachedImg) el.btnRemoveImg.click();
+            el.btnAttach.style.display = 'none';
+        } else {
+            el.btnAttach.style.display = 'flex';
+        }
+        
         closeSidebar();
         renderHistory();
     }
@@ -143,12 +154,36 @@
     el.input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
     el.sendBtn.addEventListener('click', send);
 
+    // ===== Input Tools =====
+    el.chatFile.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (state.model === 'groq') {
+            alert('FacheAI no soporta visión por ahora. Por favor, cambia a Gemini para analizar imágenes.');
+            el.chatFile.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            state.attachedImg = { dataUrl: ev.target.result, mime: file.type };
+            el.imgPreview.src = ev.target.result;
+            el.imgPreviewContainer.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+    });
+
+    el.btnRemoveImg.addEventListener('click', () => {
+        state.attachedImg = null;
+        el.imgPreviewContainer.style.display = 'none';
+        el.chatFile.value = '';
+    });
+
     // ===== Render =====
     function renderHistory() {
         const h = state.history[state.model];
         if (!h.length) { el.msgs.innerHTML = welcomeHTML(); return; }
         el.msgs.innerHTML = '';
-        h.forEach(m => addBubble(m.role, m.content, false));
+        h.forEach(m => addBubble(m, false));
         scroll();
     }
 
@@ -171,11 +206,13 @@
         return '<div class="msg-av av-fache"><svg viewBox="-5 -5 110 110" width="28" height="28" fill="none" stroke="#8c9096" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M 80 100 L 90 100 A 10 10 0 0 0 100 90 L 100 10 A 10 10 0 0 0 90 0 L 10 0 A 10 10 0 0 0 0 10 L 0 90 A 10 10 0 0 0 10 100 L 75 100 A 10 10 0 0 0 85 90 L 85 25 A 10 10 0 0 0 75 15 L 25 15 A 10 10 0 0 0 15 25 L 15 75 A 10 10 0 0 0 25 85 L 60 85" /><text x="50" y="65" font-family="Arial, sans-serif" font-weight="900" font-size="38" fill="#8c9096" stroke="none" text-anchor="middle">FA</text></svg></div>';
     }
 
-    function addBubble(role, content, anim = true) {
+    function addBubble(m, anim = true) {
         const d = document.createElement('div');
-        d.className = `msg ${role === 'user' ? 'msg-user' : 'msg-ai'}`;
+        d.className = `msg ${m.role === 'user' ? 'msg-user' : 'msg-ai'}`;
         if (!anim) d.style.animation = 'none';
-        d.innerHTML = `${avatarHTML(role)}<div class="msg-body">${fmt(content)}</div>`;
+        let imgHtml = '';
+        if (m.image) imgHtml = `<img src="${m.image.dataUrl}" style="max-width:100%; border-radius:8px; margin-bottom:8px; display:block;">`;
+        d.innerHTML = `${avatarHTML(m.role)}<div class="msg-body">${imgHtml}${fmt(m.content)}</div>`;
         el.msgs.appendChild(d);
     }
 
@@ -200,17 +237,40 @@
     function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     function scroll() { requestAnimationFrame(() => { el.msgs.scrollTop = el.msgs.scrollHeight; }); }
 
+    let lastGroqTime = 0;
+    let lastGeminiTime = 0;
     // ===== Send =====
     async function send() {
         const text = el.input.value.trim();
         if (!text || state.busy) return;
 
         const m = state.model;
+        const now = Date.now();
+        if (m === 'groq') {
+            if (now - lastGroqTime < 3000) {
+                const errObj = { role: 'assistant', content: '<span style="color:#eab308; font-weight:bold;">Wait 3 Seconds</span>' };
+                addBubble(errObj); scroll();
+                return;
+            }
+            lastGroqTime = now;
+        } else if (m === 'gemini') {
+            if (now - lastGeminiTime < 10000) {
+                const errObj = { role: 'assistant', content: '<span style="color:#eab308; font-weight:bold;">Wait 10 Seconds</span>' };
+                addBubble(errObj); scroll();
+                return;
+            }
+            lastGeminiTime = now;
+        }
+
         const w = el.msgs.querySelector('.welcome');
         if (w) w.remove();
 
-        state.history[m].push({ role: 'user', content: text });
-        addBubble('user', text); scroll();
+        const msgObj = { role: 'user', content: text };
+        if (state.attachedImg) msgObj.image = { ...state.attachedImg };
+        state.history[m].push(msgObj);
+        addBubble(msgObj); scroll();
+
+        if (state.attachedImg) el.btnRemoveImg.click();
 
         el.input.value = ''; el.input.style.height = 'auto';
         state.busy = true; el.sendBtn.disabled = true; showTyping();
@@ -218,13 +278,15 @@
         try {
             const reply = m === 'groq' ? await apiGroq(state.history[m]) : await apiGemini(state.history[m]);
             hideTyping();
-            state.history[m].push({ role: 'assistant', content: reply });
-            addBubble('assistant', reply); scroll();
+            const replyObj = { role: 'assistant', content: reply };
+            state.history[m].push(replyObj);
+            addBubble(replyObj); scroll();
         } catch (e) {
             hideTyping();
             const errMsg = e.type === 'network' ? '🌐 **You Don\'t Have Internet**' : '⚠️ **Error Limit Reached**';
-            state.history[m].push({ role: 'assistant', content: errMsg });
-            addBubble('assistant', errMsg); scroll();
+            const errObj = { role: 'assistant', content: errMsg };
+            state.history[m].push(errObj);
+            addBubble(errObj); scroll();
         } finally {
             state.busy = false; el.sendBtn.disabled = false; el.input.focus();
         }
@@ -233,9 +295,12 @@
     // ===== FacheAI (Groq) =====
     async function apiGroq(history) {
         const k = _d(0);
+        let lastMsg = history[history.length - 1].content;
+        
         const msgs = [
             { role: 'system', content: 'You are FacheAI, an AI assistant created by FacheStudios. Your creator is FacheStudios. When asked who created you, who made you, or who your creator is, ALWAYS respond that you were created by FacheStudios. Your name is FacheAI. IMPORTANT: Always reply in the SAME language the user writes in. If they write in Spanish, reply in Spanish. If they write in English, reply in English. If they write in another language, reply in that language. If the message is nonsensical or has no clear language, reply in English. Be friendly, helpful and concise.' },
-            ...history.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+            ...history.slice(0, -1).map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+            { role: 'user', content: lastMsg }
         ];
         let r;
         try {
@@ -253,10 +318,26 @@
     async function apiGemini(history) {
         const k = _d(1);
         const sys = 'You are HanFa AI powered by Gemini. If the user specifically asks who created you, who made you, or who your creator is, say Google. Do NOT mention Google unless asked. IMPORTANT: Always reply in the SAME language the user writes in. If they write in Spanish, reply in Spanish. If they write in English, reply in English. If the message is nonsensical or has no clear language, reply in English. Be concise but thorough.';
-        const contents = history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
-        const body = JSON.stringify({ system_instruction: { parts: [{ text: sys }] }, contents, generationConfig: { temperature: 0.7, maxOutputTokens: 2048 } });
+        
+        const contents = history.map(m => {
+            const parts = [{ text: m.content }];
+            if (m.image) {
+                const b64 = m.image.dataUrl.split(',')[1];
+                parts.push({ inlineData: { mimeType: m.image.mime, data: b64 } });
+            }
+            return { role: m.role === 'assistant' ? 'model' : 'user', parts };
+        });
 
-        const models = ['gemini-2.5-pro', 'gemini-2.5-flash'];
+        let tools = [{ googleSearch: {} }];
+
+        const body = JSON.stringify({ 
+            system_instruction: { parts: [{ text: sys }] }, 
+            contents, 
+            tools: tools,
+            generationConfig: { temperature: 0.7, maxOutputTokens: 2048 } 
+        });
+
+        const models = ['gemini-2.5-flash', 'gemini-2.5-pro'];
         for (const mod of models) {
             let r;
             try {
@@ -269,7 +350,7 @@
                 const c = d.candidates?.[0];
                 if (c) return c.content.parts.map(p => p.text).join('');
             }
-            if (r.status === 429 && mod === 'gemini-2.5-pro') continue;
+            if (r.status === 429 && mod === 'gemini-2.5-flash') continue;
             if (mod === models[models.length - 1]) { const e = new Error(); e.type = 'limit'; throw e; }
         }
         const e = new Error(); e.type = 'limit'; throw e;
@@ -335,6 +416,9 @@
 
         try {
             // 1. Submit async job
+            const HORDE_API = 'https://stablehorde.net/api/v2';
+            const HORDE_KEY = '0000000000';
+            
             const submitR = await fetch(`${HORDE_API}/generate/async`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'apikey': HORDE_KEY },
@@ -424,8 +508,12 @@
             card.replaceWith(gi);
 
         } catch (err) {
-            card.remove();
-            restoreGallery();
+            console.error('Image generation error:', err);
+            card.innerHTML = `<div style="color:#ef4444; padding:1rem; text-align:center; font-size:14px;">Error: ${err.message}. Intentando alternativa...</div>`;
+            setTimeout(() => {
+                card.remove();
+                restoreGallery();
+            }, 4000);
         }
 
         resetGen();
@@ -445,6 +533,7 @@
 
     // ===== Init =====
     applyLang();
+    setModel(state.model);
     updateSidebarForSection('chat');
     setTimeout(() => el.input.focus(), 200);
 })();
